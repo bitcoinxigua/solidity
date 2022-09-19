@@ -1,49 +1,55 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.6;
 
-contract Facuet {
+pragma solidity ^0.8.4;
 
-    event Receive(address indexed caller,uint value);
+//import Open Zepplins ERC-20 interface contract and Ownable contract
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-    receive() external payable {
-        emit Receive(msg.sender,msg.value);
+//create a ERC20 faucet contract
+// Logic: people can deposit tokens to the faucet contract, and let other users to request some tokens.
+contract Faucet is Ownable {
+
+    uint256 public amountAllowed = 100 * 10 ** 18;
+
+    address public tokenContract;
+
+    mapping(address => bool) public requestedAddress;
+
+    constructor(address _tokenContract) {
+        tokenContract = _tokenContract;
     }
 
-    address public owner;
+    event SendToken(address indexed Receiver,uint256 indexed Amount);
+    event WithdrawToken(address indexed sender,address indexed TokenContract,uint256 indexed Amount);
+    event WithdrawETH(address indexed sender,uint256 indexed Amount);
 
-    constructor() payable {
-        owner = msg.sender;
+    function requestTokens() external {
+        require(requestedAddress[_msgSender()] == false,"Can't Request Multiple Times!");
+        IERC20 token = IERC20(tokenContract);
+        require(token.balanceOf(address(this)) >= amountAllowed,"Faucet Empty!");
+
+        token.transfer(_msgSender(),amountAllowed);
+        requestedAddress[_msgSender()] = true;
+        emit SendToken(_msgSender(),amountAllowed);
     }
 
-    modifier onlyOwner {
-        require(msg.sender == owner,"must be owner");
-        _;
+    function setAmount (uint256 _amount) external onlyOwner {
+        amountAllowed = _amount;
     }
 
-    function getBalance() public view returns(uint) {
-        return address(this).balance;
+    function withdrawToken(address _tokenContract,uint256 _amount) public onlyOwner {
+        IERC20 token = IERC20(_tokenContract);
+
+        token.transfer(_msgSender(),_amount);
+        emit WithdrawToken(_msgSender(),_tokenContract,_amount);
     }
 
-    function deleteContract() external onlyOwner {
-        selfdestruct(payable(owner));
-    }
-
-    function getEth() external {
-        require(address(this).balance > 1 ether,"not enough eth");
-        uint time = receiveTime[msg.sender];
-        require(time == 0 || getBlockTime() > time + ONE_DAY,"must be separated by a day");
-        (bool success,) = msg.sender.call{value : 1 ether}("");
-        require(success,"Failed to get faucet");
-        receiveTime[msg.sender] = getBlockTime();
-    }
-
-    mapping (address => uint) public receiveTime;
-
-    // uint constant ONE_DAY = 86400;
-    uint constant ONE_DAY = 30;
-
-    function getBlockTime() public view returns(uint) {
-        return block.timestamp;
+    function withdrawETH() public onlyOwner {
+        address payable owner = payable(owner());
+        uint256 amount = address(this).balance;
+        owner.transfer(amount);
+        emit WithdrawETH(_msgSender(),amount);
     }
 
 
